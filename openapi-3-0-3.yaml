@@ -1,0 +1,354 @@
+openapi: 3.0.3
+info:
+  title: Campus Sports Booking API
+  description: >
+    API REST pentru gestionarea și rezervarea facilităților sportive din campusul USV 
+    (teren de fotbal, teren de tenis, sală de fitness, bazin de înot etc.).
+  version: 1.0.0
+  contact:
+    name: Echipa Campus Sports Booking
+    email: support@student.usv.ro
+
+servers:
+  - url: https://api.sports.usv.ro/v1
+    description: Server de producție
+  - url: http://localhost:8080/v1
+    description: Server local de dezvoltare
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT obținut în urma autentificării cu contul instituțional (@student.usv.ro / @usv.ro).
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - timestamp
+        - status
+        - error
+        - message
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-10-30T13:00:00Z"
+        status:
+          type: integer
+          example: 409
+        error:
+          type: string
+          example: "Conflict"
+        message:
+          type: string
+          example: "Slotul selectat este deja rezervat sau utilizatorul a atins limita de 4 rezervări/lună."
+
+    Facility:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: "Teren Sintetic Fotbal"
+        type:
+          type: string
+          enum: [FOOTBALL, TENNIS, SWIMMING_POOL, GYM, BASKETBALL]
+          example: "FOOTBALL"
+        capacity:
+          type: integer
+          example: 12
+        location:
+          type: string
+          example: "Complex Sportiv USV - Corp D"
+        isActive:
+          type: boolean
+          example: true
+
+    TimeSlot:
+      type: object
+      properties:
+        startTime:
+          type: string
+          format: date-time
+          example: "2026-11-02T10:00:00Z"
+        endTime:
+          type: string
+          format: date-time
+          example: "2026-11-02T11:00:00Z"
+        status:
+          type: string
+          enum: [AVAILABLE, BOOKED, BLOCKED_MAINTENANCE, BLOCKED_DIDACTIC]
+          example: "AVAILABLE"
+
+    BookingCreateRequest:
+      type: object
+      required:
+        - facilityId
+        - startTime
+        - endTime
+      properties:
+        facilityId:
+          type: integer
+          example: 1
+        startTime:
+          type: string
+          format: date-time
+          example: "2026-11-02T14:00:00Z"
+        endTime:
+          type: string
+          format: date-time
+          example: "2026-11-02T15:00:00Z"
+
+    BookingResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 105
+        userId:
+          type: integer
+          example: 42
+        facility:
+          $ref: '#/components/schemas/Facility'
+        startTime:
+          type: string
+          format: date-time
+          example: "2026-11-02T14:00:00Z"
+        endTime:
+          type: string
+          format: date-time
+          example: "2026-11-02T15:00:00Z"
+        status:
+          type: string
+          enum: [CONFIRMED, CANCELLED, COMPLETED, EARLY_RELEASED]
+          example: "CONFIRMED"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2026-10-30T10:15:00Z"
+
+    AdminBlockRequest:
+      type: object
+      required:
+        - facilityId
+        - startTime
+        - endTime
+        - reason
+      properties:
+        facilityId:
+          type: integer
+          example: 1
+        startTime:
+          type: string
+          format: date-time
+          example: "2026-11-03T08:00:00Z"
+        endTime:
+          type: string
+          format: date-time
+          example: "2026-11-03T12:00:00Z"
+        reason:
+          type: string
+          enum: [DIDACTIC_ACTIVITY, MAINTENANCE, EMERGENCY]
+          example: "DIDACTIC_ACTIVITY"
+        description:
+          type: string
+          example: "Ore de Educație Fizică - Facultatea de FEFS"
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ==========================================
+  # FACILITĂȚI SPORTIVE & DISPONIBILITATE
+  # ==========================================
+  /facilities:
+    get:
+      summary: Obține lista facilităților sportive
+      description: Returnează toate bazele sportive active din campus.
+      responses:
+        '200':
+          description: Listă returnată cu succes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Facility'
+
+  /facilities/{id}/availability:
+    get:
+      summary: Consultă disponibilitatea / orarul pentru o facilitate
+      description: Returnează sloturile orare pentru o anumită dată, indicând dacă sunt libere, rezervate sau blocate.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID-ul facilității
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+          example: "2026-11-02"
+          description: Data pentru care se verifică orarul (YYYY-MM-DD)
+      responses:
+        '200':
+          description: Orarul zilei respective
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TimeSlot'
+        '404':
+          description: Facilitatea nu a fost găsită
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================
+  # REZERVĂRI UTILIZATOR
+  # ==========================================
+  /bookings:
+    post:
+      summary: Creează o rezervare nouă
+      description: >
+        Creează o rezervare pentru un interval de o oră. 
+        Validează regula de maximum 4 rezervări active/gratuite pe lună per student 
+        și verifică dacă intervalul este liber.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingCreateRequest'
+      responses:
+        '201':
+          description: Rezervare creată cu succes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingResponse'
+        '400':
+          description: Date invalide (ex. interval mai mic sau mai mare de 1h, dată în trecut)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict - Slotul este deja ocupat sau utilizatorul a depășit cota de 4 rezervări/lună
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: Obține istoricul și rezervările active ale utilizatorului curent
+      description: Returnează rezervările studentului autentificat.
+      responses:
+        '200':
+          description: Lista de rezervări
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BookingResponse'
+
+  /bookings/{id}/cancel:
+    put:
+      summary: Anulează o rezervare
+      description: >
+        Permite anularea rezervării dacă au rămas cel puțin 2 ore până la începerea acesteia.
+        La anulare, slotul devine disponibil și utilizatorii din lista de așteptare/notificări sunt alertați.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID-ul rezervării
+      responses:
+        '200':
+          description: Rezervare anulată cu succes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingResponse'
+        '400':
+          description: Nu se mai poate anula (termenul de minimum 2 ore a expirat)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Rezervarea nu aparține utilizatorului conectat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /bookings/{id}/early-release:
+    put:
+      summary: Eliberare anticipată a terenului / sălii
+      description: >
+        Dacă utilizatorul își termină activitatea mai devreme (sau anunță cu 20-30 min înainte), 
+        poate elibera slotul pentru a permite altor colegi să intre.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Terenul a fost marcat ca eliberat anticipat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingResponse'
+
+  # ==========================================
+  # ADMINISTRARE (CADRE DIDACTICE & ADMIN)
+  # ==========================================
+  /admin/facilities/block:
+    post:
+      summary: Blochează o facilitate sportivă pentru ore de curs sau mentenanță
+      description: >
+        Endpoint rezervat administratorilor sau profesorilor FEFS. 
+        Dacă există rezervări ale studenților în acel interval, acestea sunt anulate automat și studenții notificați.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminBlockRequest'
+      responses:
+        '200':
+          description: Intervalul a fost blocat cu succes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Facilitatea a fost blocată. Au fost anulate 2 rezervări existente cu notificare pe email."
+                  cancelledBookingsCount:
+                    type: integer
+                    example: 2
+        '403':
+          description: Acces interzis (necesită rol de ADMIN sau TEACHER)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
