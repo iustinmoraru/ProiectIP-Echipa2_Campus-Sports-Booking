@@ -1,0 +1,81 @@
+Enum user_role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+Enum booking_status {
+  CONFIRMED
+  CANCELLED
+  EARLY_RELEASED
+  COMPLETED
+}
+
+Enum facility_type {
+  FOOTBALL
+  TENNIS
+  SWIMMING_POOL
+  GYM
+  BASKETBALL
+}
+
+Enum block_reason {
+  DIDACTIC_ACTIVITY
+  MAINTENANCE
+  EMERGENCY
+}
+
+Table users {
+  id integer [pk, increment]
+  email varchar(100) [unique, not null, note: 'Trebuie sa fie @student.usv.ro sau @usv.ro']
+  first_name varchar(50) [not null]
+  last_name varchar(50) [not null]
+  password_hash varchar(255) [not null]
+  role user_role [default: 'STUDENT', not null]
+  created_at timestamp [default: `now()`]
+}
+
+Table facilities {
+  id integer [pk, increment]
+  name varchar(100) [not null, note: 'ex. Teren Sintetic 1']
+  type facility_type [not null]
+  capacity integer [not null]
+  location varchar(150) [not null, note: 'ex. Complex Sportiv Corp D']
+  is_active boolean [default: true]
+}
+
+Table bookings {
+  id integer [pk, increment]
+  user_id integer [ref: > users.id, not null]
+  facility_id integer [ref: > facilities.id, not null]
+  start_time timestamp [not null]
+  end_time timestamp [not null]
+  status booking_status [default: 'CONFIRMED', not null]
+  early_released_at timestamp [note: 'Completat daca elibereaza cu 20-30 min inainte']
+  created_at timestamp [default: `now()`]
+
+  indexes {
+    (facility_id, start_time) [unique, note: 'Previne dubla rezervare']
+    user_id
+  }
+}
+
+Table blocked_slots {
+  id integer [pk, increment]
+  facility_id integer [ref: > facilities.id, not null]
+  created_by_user_id integer [ref: > users.id, not null, note: 'Profesor sau Admin']
+  start_time timestamp [not null]
+  end_time timestamp [not null]
+  reason block_reason [not null]
+  description text
+  created_at timestamp [default: `now()`]
+}
+
+Table waitlist_notifications {
+  id integer [pk, increment]
+  user_id integer [ref: > users.id, not null]
+  facility_id integer [ref: > facilities.id, not null]
+  target_date date [not null]
+  is_notified boolean [default: false]
+  created_at timestamp [default: `now()`]
+}
